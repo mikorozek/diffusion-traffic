@@ -1,9 +1,8 @@
-from typing import Tuple
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models.time_embedding import SinusoidalPositionEmbedding
+from time_embedding import SinusoidalPositionEmbedding
 
 
 def zero_module(module):
