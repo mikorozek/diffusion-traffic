@@ -62,7 +62,6 @@ def log_generated_images_to_wandb(
 
         wandb_images = [wandb.Image(img) for img in denormalized_images]
         wandb.log({"Generated Samples": wandb_images}, step=epoch_num + 1)
-    unet_model.train()
     print("Images logged to wandb.")
 
 
