@@ -1,14 +1,32 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from abc import abstractmethod
 
-from time_embedding import SinusoidalPositionEmbedding
+from src.time_embedding import SinusoidalPositionEmbedding
 
 
 def zero_module(module):
     for p in module.parameters():
         p.detach().zero_()
     return module
+
+
+class TimestepBlock(nn.Module):
+
+    @abstractmethod
+    def forward(self, x, time_emb):
+        pass
+
+
+class TimestepEmbedSequential(nn.Sequential, TimestepBlock):
+    def forward(self, x, time_emb):
+        for layer in self:
+            if isinstance(layer, TimestepBlock):
+                x = layer(x, time_emb)
+            else:
+                x = layer(x)
+        return x
 
 
 class Upsample(nn.Module):
@@ -40,7 +58,7 @@ class Downsample(nn.Module):
         return self.op(x)
 
 
-class ResidualBlock(nn.Module):
+class ResidualBlock(TimestepBlock):
     def __init__(
         self,
         model_channels: int,
@@ -92,7 +110,7 @@ class UNet(nn.Module):
         self,
         in_channels: int = 3,
         model_channels: int = 128,
-        out_channels: int = 128,
+        out_channels: int = 3,
         num_residual_blocks: int = 2,
         num_normalization_groups: int = 32,
         dropout_rate: float = 0.0,
@@ -114,59 +132,58 @@ class UNet(nn.Module):
         )
 
         self.input_blocks = nn.ModuleList(
-            [nn.Conv2d(in_channels, model_channels, 3, padding=1)]
+            [
+                TimestepEmbedSequential(
+                    nn.Conv2d(in_channels, model_channels, 3, padding=1)
+                )
+            ]
         )
 
         input_block_chans = [model_channels]
         ch = model_channels
         for level, mult in enumerate(channel_mult):
             for _ in range(num_residual_blocks):
-                res_block = ResidualBlock(
-                    model_channels=ch,
-                    emb_channels=self.time_embed_dim,
-                    num_groups=self.num_normalization_groups,
-                    out_channels=mult * model_channels,
-                    dropout_rate=self.dropout_rate,
-                )
+                layers = [
+                    ResidualBlock(
+                        model_channels=ch,
+                        emb_channels=self.time_embed_dim,
+                        num_groups=self.num_normalization_groups,
+                        out_channels=mult * model_channels,
+                        dropout_rate=self.dropout_rate,
+                    )
+                ]
                 ch = mult * model_channels
-                self.input_blocks.append(res_block)
+                self.input_blocks.append(TimestepEmbedSequential(*layers))
                 input_block_chans.append(ch)
             if level != len(channel_mult) - 1:
-                self.input_blocks.append(Downsample(ch))
+                self.input_blocks.append(TimestepEmbedSequential(Downsample(ch)))
                 input_block_chans.append(ch)
 
-        self.middle_block = nn.ModuleList(
-            [
-                ResidualBlock(
-                    model_channels=ch,
-                    emb_channels=self.time_embed_dim,
-                    num_groups=self.num_normalization_groups,
-                    out_channels=ch,
-                    dropout_rate=self.dropout_rate,
-                ),
-                ResidualBlock(
-                    model_channels=ch,
-                    emb_channels=self.time_embed_dim,
-                    num_groups=self.num_normalization_groups,
-                    out_channels=ch,
-                    dropout_rate=self.dropout_rate,
-                ),
-            ]
+        self.middle_block = TimestepEmbedSequential(
+            ResidualBlock(
+                model_channels=ch,
+                emb_channels=self.time_embed_dim,
+                num_groups=self.num_normalization_groups,
+                out_channels=ch,
+                dropout_rate=self.dropout_rate,
+            )
         )
         self.output_blocks = nn.ModuleList([])
         for level, mult in list(enumerate(channel_mult))[::-1]:
             for i in range(num_residual_blocks + 1):
-                res_block = ResidualBlock(
-                    model_channels=ch + input_block_chans.pop(),
-                    emb_channels=self.time_embed_dim,
-                    num_groups=32,
-                    out_channels=mult * model_channels,
-                    dropout_rate=self.dropout_rate,
-                )
+                layers = [
+                    ResidualBlock(
+                        model_channels=ch + input_block_chans.pop(),
+                        emb_channels=self.time_embed_dim,
+                        num_groups=self.num_normalization_groups,
+                        out_channels=mult * model_channels,
+                        dropout_rate=self.dropout_rate,
+                    )
+                ]
                 ch = model_channels * mult
-                self.output_blocks.append(res_block)
                 if level and i == num_residual_blocks:
-                    self.output_blocks.append(Upsample(ch))
+                    layers.append(Upsample(ch))
+                self.output_blocks.append(TimestepEmbedSequential(*layers))
 
         self.out = nn.Sequential(
             nn.GroupNorm(self.num_normalization_groups, ch),
