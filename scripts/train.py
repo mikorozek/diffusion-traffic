@@ -11,7 +11,7 @@ from src.unet import UNet
 from src.diffusion import Diffusion
 
 
-DATASET_PATH = "/home/mrozek/ssne-2025l/diffusion-traffic/trafic_32"
+DATASET_PATH = "*"
 IMAGE_SIZE = 32
 BATCH_SIZE = 8
 VAL_SPLIT_RATIO = 0.1
@@ -31,7 +31,7 @@ COSINE_S = 0.008
 LEARNING_RATE = 1e-4
 EPOCHS = 20
 MODEL_SAVE_PATH = (
-    "/home/mrozek/ssne-2025/diffusion-traffic/models/traffic_sign_unet.pth"
+    "*"
 )
 SAVE_EVERY_N_EPOCHS = 2
 LOG_IMAGES_EVERY_N_EPOCHS = 5
